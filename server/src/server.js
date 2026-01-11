@@ -7,6 +7,7 @@ import pkg from "pg"
 // Rutas
 import authRoutes from "./routes/auth.js"
 import intentRoutes from "./routes/intents.js"
+import usersRouter from "./routes/users.js"
 
 dotenv.config()
 const app = express()
@@ -32,6 +33,7 @@ pool.connect()
 // Rutas principales
 app.use("/auth", authRoutes)
 app.use("/intents", intentRoutes)
+app.use("/users", usersRouter)
 
 // Ruta de prueba
 app.get("/health", (req, res) => {

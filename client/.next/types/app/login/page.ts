@@ -1,4 +1,4 @@
-// File: C:\Users\rondo\OneDrive\Escritorio\interfaz fran\Themis-Chatbot\client\src\app\login\page.tsx
+// File: /Users/OrianaR/Desktop/Interfazfran/client/src/app/login/page.tsx
 import * as entry from '../../../../src/app/login/page.js'
 import type { ResolvingMetadata, ResolvingViewport } from 'next/dist/lib/metadata/types/metadata-interface.js'
 
