@@ -1,4 +1,4 @@
-// File: C:\Users\rondo\OneDrive\Escritorio\interfaz fran\Themis-Chatbot\client\src\app\layout.tsx
+// File: /Users/OrianaR/Desktop/Interfazfran/client/src/app/layout.tsx
 import * as entry from '../../../src/app/layout.js'
 import type { ResolvingMetadata, ResolvingViewport } from 'next/dist/lib/metadata/types/metadata-interface.js'
 

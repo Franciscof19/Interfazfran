@@ -2,9 +2,15 @@
 
 import { useEffect, useState } from "react"
 
-// Ajusta estos endpoints si tus puertos son distintos
 const INTENTS_API = "http://localhost:4000"
-const POSTGREST_API = "http://localhost:3000"
+const POSTGREST_API = "http://localhost:3001"
+
+/** Cabeceras con Authorization si hay token. */
+function authHeaders(token: string | null, extra: Record<string, string> = {}) {
+  const base: Record<string, string> = { ...extra }
+  if (token) base.Authorization = `Bearer ${token}`
+  return base
+}
 
 interface Intent {
   id?: string
@@ -24,26 +30,47 @@ interface User {
   lastLogin?: string
 }
 
+interface FormState {
+  id?: string
+  title: string
+  patternsRaw: string
+  patterns: string[]
+  responsesRaw: string
+  responses: string[]
+  files: { filename: string; path: string }[]
+  faq: boolean
+  updatedAt?: string
+}
+
 export default function AdminIntentsPage() {
   // Estados de intenciones
-  const [intents, setIntents] = useState<Intent[]>([])
-  const [form, setForm] = useState<Intent>({
-    title: "",
-    patterns: [],
-    responses: [],
-    files: [],
-    faq: false
-  })
-  const [filesToUpload, setFilesToUpload] = useState<FileList | null>(null)
+const [intents, setIntents] = useState<Intent[]>([])
+
+// 👇 añadimos patternsRaw y responsesRaw para guardar el texto plano
+const [form, setForm] = useState<FormState>({
+  id: undefined,
+  title: "",
+  patternsRaw: "",
+  patterns: [],
+  responsesRaw: "",
+  responses: [],
+  files: [],
+  faq: false,
+  updatedAt: undefined
+})
+
+
+const [filesToUpload, setFilesToUpload] = useState<FileList | null>(null)
+
 
   // Estados globales
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState("")
 
-  // Token
-  const token = typeof window !== "undefined" ? localStorage.getItem("token") : null
+  // Token como estado
+  const [token, setToken] = useState<string | null>(null)
 
-  // Estados de usuarios (PostgREST)
+  // Estados de usuarios
   const [users, setUsers] = useState<User[]>([])
   const [userForm, setUserForm] = useState<User>({
     username: "",
@@ -51,33 +78,37 @@ export default function AdminIntentsPage() {
     role: ""
   })
 
+  // Cargar token al montar
+  useEffect(() => {
+    const existing = typeof window !== "undefined" ? localStorage.getItem("token") : null
+    if (existing) {
+      setToken(existing)
+    } else {
+      const envToken = process.env.NEXT_PUBLIC_JWT_TOKEN || ""
+      if (envToken) {
+        localStorage.setItem("token", envToken)
+        setToken(envToken)
+      }
+    }
+  }, [])
+
   // Carga inicial de datos
   useEffect(() => {
+    if (token === null) return // aún cargando
     if (!token) {
       window.location.href = "/login"
       return
     }
     ;(async () => {
       try {
-        // Intenciones (backend en 4000)
         const resIntents = await fetch(`${INTENTS_API}/intents`, {
-          headers: { Authorization: `Bearer ${token}` }
+          headers: authHeaders(token)
         })
+        if (!resIntents.ok) throw new Error(`Intents ${resIntents.status}`)
         const dataIntents = await resIntents.json()
-        if (Array.isArray(dataIntents)) {
-          setIntents(dataIntents)
-        } else {
-          setError(dataIntents.error || "No se pudieron cargar las intenciones")
-        }
+        if (Array.isArray(dataIntents)) setIntents(dataIntents)
 
-        // Usuarios (PostgREST en 3000)
-        const resUsers = await fetch(`${POSTGREST_API}/users`, {
-          headers: { Authorization: `Bearer ${token}` }
-        })
-        const dataUsers = await resUsers.json()
-        if (Array.isArray(dataUsers)) {
-          setUsers(dataUsers)
-        }
+        await refreshUsers()
       } catch (err) {
         console.error("Error cargando datos:", err)
         setError("No se pudo conectar con el servidor")
@@ -85,22 +116,20 @@ export default function AdminIntentsPage() {
     })()
   }, [token])
 
-  // Utilidades de intenciones
+  // Utilidades intenciones
   const resetForm = () =>
     setForm({ title: "", patterns: [], responses: [], files: [], faq: false })
 
   const refreshList = async () => {
+    if (!token) return
     setLoading(true)
     try {
       const res = await fetch(`${INTENTS_API}/intents`, {
-        headers: { Authorization: `Bearer ${token}` }
+        headers: authHeaders(token)
       })
+      if (!res.ok) throw new Error(`List ${res.status}`)
       const data = await res.json()
-      if (Array.isArray(data)) {
-        setIntents(data)
-      } else {
-        setError(data.error || "No se pudo actualizar el listado")
-      }
+      if (Array.isArray(data)) setIntents(data)
     } catch {
       setError("No se pudo actualizar el listado")
     } finally {
@@ -109,6 +138,7 @@ export default function AdminIntentsPage() {
   }
 
   const saveIntent = async () => {
+    if (!token) return
     setError("")
     setLoading(true)
     try {
@@ -119,10 +149,7 @@ export default function AdminIntentsPage() {
 
       const res = await fetch(url, {
         method,
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`
-        },
+        headers: authHeaders(token, { "Content-Type": "application/json" }),
         body: JSON.stringify({
           title: form.title,
           patterns: form.patterns,
@@ -130,17 +157,19 @@ export default function AdminIntentsPage() {
           faq: form.faq
         })
       })
+      if (!res.ok) throw new Error(`Save intent ${res.status}`)
       const data = await res.json()
 
       const intentId = data.id || form.id
       if (filesToUpload && intentId) {
         const fd = new FormData()
         Array.from(filesToUpload).forEach((f) => fd.append("files", f))
-        await fetch(`${INTENTS_API}/intents/${intentId}/files`, {
+        const resFiles = await fetch(`${INTENTS_API}/intents/${intentId}/files`, {
           method: "POST",
-          headers: { Authorization: `Bearer ${token}` },
+          headers: authHeaders(token),
           body: fd
         })
+        if (!resFiles.ok) throw new Error(`Files ${resFiles.status}`)
       }
 
       await refreshList()
@@ -153,27 +182,29 @@ export default function AdminIntentsPage() {
     }
   }
 
-  const editIntent = (i: Intent) => {
-    setForm({
-      id: i.id,
-      title: i.title,
-      patterns: i.patterns || [],
-      responses: i.responses || [],
-      files: i.files || [],
-      faq: !!i.faq,
-      updatedAt: i.updatedAt
-    })
-    setFilesToUpload(null)
-  }
+const editIntent = (i: Intent) => {
+  setForm({
+    title: i.title,
+    patternsRaw: i.patterns.join(", "),
+    patterns: i.patterns || [],
+    responsesRaw: i.responses.join(", "),
+    responses: i.responses || [],
+    files: i.files || [],
+    faq: !!i.faq
+  })
+  setFilesToUpload(null)
+}
+
 
   const deleteIntent = async (id?: string) => {
-    if (!id) return
+    if (!token || !id) return
     setLoading(true)
     try {
-      await fetch(`${INTENTS_API}/intents/${id}`, {
+      const res = await fetch(`${INTENTS_API}/intents/${id}`, {
         method: "DELETE",
-        headers: { Authorization: `Bearer ${token}` }
+        headers: authHeaders(token)
       })
+      if (!res.ok) throw new Error(`Delete intent ${res.status}`)
       await refreshList()
       if (form.id === id) resetForm()
     } catch {
@@ -184,17 +215,15 @@ export default function AdminIntentsPage() {
   }
 
   const removeFile = async (id?: string, path?: string) => {
-    if (!id || !path) return
+    if (!token || !id || !path) return
     setLoading(true)
     try {
-      await fetch(`${INTENTS_API}/intents/${id}/files`, {
+      const res = await fetch(`${INTENTS_API}/intents/${id}/files`, {
         method: "DELETE",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`
-        },
+        headers: authHeaders(token, { "Content-Type": "application/json" }),
         body: JSON.stringify({ path })
       })
+      if (!res.ok) throw new Error(`Remove file ${res.status}`)
       await refreshList()
       const found = intents.find((x) => x.id === id)
       if (found) {
@@ -210,361 +239,417 @@ export default function AdminIntentsPage() {
     }
   }
 
-  // CRUD de usuarios con PostgREST
-  const refreshUsers = async () => {
-    try {
-      const res = await fetch(`${POSTGREST_API}/users`, {
-        headers: {
-          Authorization: `Bearer ${token}`,
-          Prefer: "count=exact"
-        }
-      })
-      const data = await res.json()
-      if (Array.isArray(data)) setUsers(data)
-    } catch {
-      setError("No se pudo cargar usuarios")
+  // CRUD usuarios
+  const USERS_API = "http://localhost:4000/users"
+
+const refreshUsers = async () => {
+  if (!token) return
+  try {
+    const res = await fetch(USERS_API, {
+      headers: authHeaders(token)
+    })
+    if (!res.ok) throw new Error(`Users ${res.status}`)
+    const data = await res.json()
+    if (Array.isArray(data)) {
+      setUsers(data)
     }
+  } catch {
+    setError("No se pudo cargar usuarios")
   }
+}
 
-  const saveUser = async () => {
-    setError("")
-    setLoading(true)
-    try {
-      const isUpdate = !!userForm.id
-      const method = isUpdate ? "PATCH" : "POST"
-      const url = isUpdate
-        ? `${POSTGREST_API}/users?id=eq.${userForm.id}`
-        : `${POSTGREST_API}/users`
+const saveUser = async () => {
+  if (!token) return
+  setError("")
+  setLoading(true)
+  try {
+    const isUpdate = !!userForm.id
+    const method = isUpdate ? "PATCH" : "POST"
+    const url = isUpdate ? `${USERS_API}/${userForm.id}` : USERS_API
 
-      const res = await fetch(url, {
-        method,
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-          Prefer: "return=representation" // devuelve el registro creado/actualizado
-        },
-        body: JSON.stringify({
-          username: userForm.username,
-          password: userForm.password,
-          role: userForm.role
-        })
+    const res = await fetch(url, {
+      method,
+      headers: authHeaders(token, {
+        "Content-Type": "application/json"
+      }),
+      body: JSON.stringify({
+        username: userForm.username,
+        password: userForm.password,
+        role: userForm.role
       })
+    })
 
-      // Opcional: usar la respuesta para actualizar sin refetch
-      const returned = await res.json()
-      if (Array.isArray(returned)) {
-        // PostgREST puede devolver array de filas afectadas
-        const updatedUser = returned[0]
-        if (updatedUser) {
-          if (isUpdate) {
-            setUsers((prev) => prev.map((u) => (u.id === updatedUser.id ? updatedUser : u)))
-          } else {
-            setUsers((prev) => [updatedUser, ...prev])
-          }
-        } else {
-          await refreshUsers()
-        }
-      } else {
-        await refreshUsers()
-      }
+    if (!res.ok) throw new Error(`Guardar usuario: ${res.status}`)
+    const returned = await res.json()
 
-      setUserForm({ username: "", password: "", role: "" })
-    } catch {
-      setError("No se pudo guardar usuario")
-    } finally {
-      setLoading(false)
+    if (isUpdate) {
+      setUsers((prev) =>
+        prev.map((u) => (u.id === returned.id ? returned : u))
+      )
+    } else {
+      setUsers((prev) => [returned, ...prev])
     }
+
+    setUserForm({ username: "", password: "", role: "" })
+  } catch {
+    setError("No se pudo guardar usuario")
+  } finally {
+    setLoading(false)
   }
+}
 
-  const editUser = (u: User) => {
-    setUserForm({ id: u.id, username: u.username, role: u.role || "" })
+const editUser = (u: User) => {
+  setUserForm({ id: u.id, username: u.username, role: u.role || "" })
+}
+
+const deleteUser = async (id?: string) => {
+  if (!token || !id) return
+  setLoading(true)
+  try {
+    const res = await fetch(`${USERS_API}/${id}`, {
+      method: "DELETE",
+      headers: authHeaders(token)
+    })
+    if (!res.ok) throw new Error(`Delete user ${res.status}`)
+    setUsers((prev) => prev.filter((u) => u.id !== id))
+  } catch {
+    setError("No se pudo eliminar usuario")
+  } finally {
+    setLoading(false)
   }
+}
 
-  const deleteUser = async (id?: string) => {
-    if (!id) return
-    setLoading(true)
-    try {
-      await fetch(`${POSTGREST_API}/users?id=eq.${id}`, {
-        method: "DELETE",
-        headers: { Authorization: `Bearer ${token}` }
-      })
-      setUsers((prev) => prev.filter((u) => u.id !== id))
-    } catch {
-      setError("No se pudo eliminar usuario")
-    } finally {
-      setLoading(false)
-    }
-  }
+const resetUserForm = () => {
+  setUserForm({ username: "", password: "", role: "" })
+}
 
-  const resetUserForm = () => setUserForm({ username: "", password: "", role: "" })
+// Función de logout dentro de AdminIntentsPage
+// Dentro de tu componente AdminIntentsPage
+const logout = () => {
+  localStorage.removeItem("token")   // borra el token
+  window.location.href = "/login"    // redirige al login
+}
 
-  return (
-    <div className="min-h-screen bg-[#F5F5DC] p-6">
-      <div className="max-w-6xl mx-auto">
-        <h1 className="text-2xl font-semibold text-[#3a161a] mb-4">Panel de intenciones</h1>
+return (
+  <div className="min-h-screen bg-[#F5F5DC] p-6">
+    <div className="max-w-6xl mx-auto">
 
-        {error && (
-          <div className="mb-4 rounded border border-red-300 bg-red-50 p-3 text-sm text-red-700">
-            {error}
-          </div>
-        )}
-<div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-  {/* Izquierda: Formulario de Intención */}
-  <div className="space-y-6">
-    <div className="bg-white rounded-lg shadow p-5 space-y-4">
-      <h2 className="text-lg font-semibold">Intención</h2>
-
-      <label className="text-sm font-medium">Título</label>
-      <input
-        className="w-full border rounded p-2"
-        placeholder="Título"
-        value={form.title}
-        onChange={(e) => setForm({ ...form, title: e.target.value })}
-      />
-
-      <label className="text-sm font-medium">Patrones (separados por coma)</label>
-      <textarea
-        className="w-full border rounded p-2"
-        placeholder="hola, ayuda, cómo puedo..."
-        value={form.patterns.join(", ")}
-        onChange={(e) =>
-          setForm({
-            ...form,
-            patterns: e.target.value.split(",").map((s) => s.trim()).filter(Boolean)
-          })
-        }
-      />
-
-      <label className="text-sm font-medium">Respuestas (separadas por coma)</label>
-      <textarea
-        className="w-full border rounded p-2"
-        placeholder="Respuesta 1, Respuesta 2..."
-        value={form.responses.join(", ")}
-        onChange={(e) =>
-          setForm({
-            ...form,
-            responses: e.target.value.split(",").map((s) => s.trim()).filter(Boolean)
-          })
-        }
-      />
-
-      <label className="flex items-center gap-2 text-sm">
-        <input
-          type="checkbox"
-          checked={form.faq}
-          onChange={(e) => setForm({ ...form, faq: e.target.checked })}
-        />
-        Mostrar como Pregunta Frecuente
-      </label>
-
-      <div className="space-y-2">
-        <label className="text-sm font-medium">Archivos</label>
-        <input type="file" multiple onChange={(e) => setFilesToUpload(e.target.files)} />
-        {form.id && form.files?.length > 0 && (
-          <ul className="text-sm space-y-1 mt-2">
-            {form.files.map((f) => (
-              <li key={f.path} className="flex items-center justify-between">
-                <a
-                  href={`${INTENTS_API}${f.path}`}
-                  className="text-blue-600 underline"
-                  download
-                >
-                  {f.filename}
-                </a>
-                <button
-                  className="text-red-600 hover:underline"
-                  onClick={() => removeFile(form.id, f.path)}
-                >
-                  Eliminar
-                </button>
-              </li>
-            ))}
-          </ul>
-        )}
-      </div>
-
-      <div className="flex gap-2">
+      {/* Cabecera con título y botón salir */}
+      <div className="flex items-center justify-between mb-6">
+        <h1 className="text-2xl font-semibold text-[#3a161a]">
+          Panel de administración
+        </h1>
         <button
-          className="bg-[#722F37] hover:bg-[#5a2529] text-white px-3 py-2 rounded disabled:opacity-60"
-          onClick={saveIntent}
-          disabled={loading || !form.title}
+          className="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded transition-colors"
+          onClick={logout}
         >
-          {form.id ? "Guardar cambios" : "Crear intención"}
-        </button>
-        <button className="border px-3 py-2 rounded" onClick={resetForm} disabled={loading}>
-          Limpiar
+          Salir
         </button>
       </div>
-    </div>
-  </div>
 
-  {/* Derecha: Listado de Intenciones */}
-  <div className="bg-white rounded-lg shadow p-5">
-    <div className="flex items-center justify-between mb-3">
-      <h2 className="text-lg font-semibold">Intenciones</h2>
-      <button
-        className="text-sm text-[#722F37] hover:underline"
-        onClick={refreshList}
-        disabled={loading}
-      >
-        {loading ? "Actualizando..." : "Actualizar"}
-      </button>
-    </div>
+      {/* Mensajes globales */}
+      {error && (
+        <div className="mb-4 rounded border border-red-300 bg-red-50 p-3 text-sm text-red-700">
+          {error}
+        </div>
+      )}
 
-    {Array.isArray(intents) && intents.length === 0 ? (
-      <p className="text-sm text-gray-600">No hay intenciones creadas aún.</p>
-    ) : Array.isArray(intents) ? (
-      <ul className="space-y-3">
-        {intents.map((i) => (
-          <li key={i.id} className="border rounded-lg p-3">
-            <div className="flex items-start justify-between gap-4">
-              <div className="flex-1">
-                <p className="font-medium">{i.title}</p>
-                <p className="text-xs text-gray-600 mt-1">
-                  Patrones: <span className="text-gray-800">{i.patterns.join(" | ")}</span>
-                </p>
-                <p className="text-xs text-gray-600">
-                  Respuestas: <span className="text-gray-800">{i.responses.join(" | ")}</span>
-                </p>
-                {i.faq && <span className="text-xs text-green-700">FAQ</span>}
-                {i.updatedAt && (
-                  <p className="text-xs text-gray-500 mt-1">
-                    Actualizado: {new Date(i.updatedAt).toLocaleString("es-ES")}
-                  </p>
-                )}
-                {i.files?.length > 0 && (
-                  <div className="mt-2">
-                    <p className="text-xs font-medium">Archivos:</p>
-                    <ul className="text-xs space-y-1 mt-1">
-                      {i.files.map((f) => (
-                        <li key={`${i.id}-${f.path}`} className="flex items-center justify-between">
-                          <a
-                            href={`${INTENTS_API}${f.path}`}
-                            className="text-blue-600 underline"
-                            download
-                          >
-                            {f.filename}
-                          </a>
-                          <button
-                            className="text-red-600 hover:underline"
-                            onClick={() => removeFile(i.id, f.path)}
-                          >
-                            Eliminar
-                          </button>
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                )}
-              </div>
-              <div className="flex flex-col gap-2">
-                <button className="border px-3 py-1 rounded" onClick={() => editIntent(i)}>
-                  Editar
-                </button>
-                <button
-                  className="bg-red-600 text-white px-3 py-1 rounded"
-                  onClick={() => deleteIntent(i.id)}
-                >
-                  Eliminar
-                </button>
-              </div>
+      {/* Grid: Formulario y Listado de Intenciones */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        
+        {/* Izquierda: Formulario de Intención */}
+        <div className="space-y-6">
+          <div className="bg-white rounded-lg shadow p-5 space-y-4">
+            <h2 className="text-lg font-semibold">Intención</h2>
+
+            <div className="flex flex-col gap-1">
+              <label className="text-sm font-medium">Título</label>
+              <input
+                className="w-full border rounded p-2"
+                placeholder="Título"
+                value={form.title}
+                onChange={(e) => setForm({ ...form, title: e.target.value })}
+              />
             </div>
-          </li>
-        ))}
-      </ul>
-    ) : (
-      <p className="text-sm text-gray-600">No se pudo cargar el listado.</p>
-    )}
-  </div>
+
+            <div className="flex flex-col gap-1">
+  <label className="text-sm font-medium">Patrones (separados por coma)</label>
+  <textarea
+    className="w-full border rounded p-2"
+    placeholder="hola, como estas?, bienvenido"
+    value={form.patternsRaw}   // mostramos el texto plano
+    onChange={(e) =>
+      setForm({
+        ...form,
+        patternsRaw: e.target.value, // guarda el texto tal cual
+        patterns: e.target.value
+          .split(",")
+          .map((s) => s.trim())
+          .filter(Boolean) // crea el arreglo
+      })
+    }
+  />
 </div>
-{/* Usuarios: formulario + listado, debajo del grid */}
+
+<div className="flex flex-col gap-1">
+  <label className="text-sm font-medium">Respuestas (separadas por coma)</label>
+  <textarea
+    className="w-full border rounded p-2"
+    placeholder="Respuesta 1, Respuesta 2..."
+    value={form.responsesRaw}   // mostramos el texto plano
+    onChange={(e) =>
+      setForm({
+        ...form,
+        responsesRaw: e.target.value, // guarda el texto tal cual
+        responses: e.target.value
+          .split(",")
+          .map((s) => s.trim())
+          .filter(Boolean) // crea el arreglo
+      })
+    }
+  />
+</div>
+
+<label className="flex items-center gap-2 text-sm cursor-pointer">
+  <input
+    type="checkbox"
+    checked={form.faq}
+    onChange={(e) => setForm({ ...form, faq: e.target.checked })}
+  />
+  Mostrar como Pregunta Frecuente
+</label>
+
+
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Archivos</label>
+              <input 
+                type="file" 
+                multiple 
+                onChange={(e) => setFilesToUpload(e.target.files)} 
+                className="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded file:border-0 file:text-sm file:font-semibold file:bg-gray-100 file:text-gray-700 hover:file:bg-gray-200"
+              />
+              {form.id && form.files?.length > 0 && (
+                <ul className="text-sm space-y-1 mt-2">
+                  {form.files.map((f) => (
+                    <li key={f.path} className="flex items-center justify-between bg-gray-50 p-1 rounded">
+                      <a
+                        href={`${INTENTS_API}${f.path}`}
+                        className="text-blue-600 underline truncate max-w-[200px]"
+                        download
+                      >
+                        {f.filename}
+                      </a>
+                      <button
+                        className="text-red-600 hover:underline text-xs"
+                        onClick={() => removeFile(form.id, f.path)}
+                      >
+                        Eliminar
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+
+            <div className="flex gap-2 pt-2">
+              <button
+                className="bg-[#722F37] hover:bg-[#5a2529] text-white px-3 py-2 rounded disabled:opacity-60 transition-colors"
+                onClick={saveIntent}
+                disabled={loading || !form.title}
+              >
+                {form.id ? "Guardar cambios" : "Crear intención"}
+              </button>
+              <button className="border px-3 py-2 rounded hover:bg-gray-50 transition-colors" onClick={resetForm} disabled={loading}>
+                Limpiar
+              </button>
+            </div>
+          </div>
+        </div>
+
+        {/* Derecha: Listado de Intenciones */}
+        <div className="bg-white rounded-lg shadow p-5">
+          <div className="flex items-center justify-between mb-3 border-b pb-2">
+            <h2 className="text-lg font-semibold">Intenciones</h2>
+            <button
+              className="text-sm text-[#722F37] hover:underline font-medium"
+              onClick={refreshList}
+              disabled={loading}
+            >
+              {loading ? "Actualizando..." : "Actualizar"}
+            </button>
+          </div>
+
+          <div className="max-h-[600px] overflow-y-auto pr-2">
+            {!Array.isArray(intents) ? (
+              <p className="text-sm text-gray-600">No se pudo cargar el listado.</p>
+            ) : intents.length === 0 ? (
+              <p className="text-sm text-gray-600 italic">No hay intenciones creadas aún.</p>
+            ) : (
+              <ul className="space-y-3">
+                {intents.map((i) => (
+                  <li key={i.id} className="border rounded-lg p-3 hover:border-gray-400 transition-colors">
+                    <div className="flex items-start justify-between gap-4">
+                      <div className="flex-1">
+                        <p className="font-semibold text-gray-800">{i.title}</p>
+                        <p className="text-xs text-gray-600 mt-1">
+                          <span className="font-bold">Patrones:</span> {i.patterns.join(" | ")}
+                        </p>
+                        <p className="text-xs text-gray-600">
+                          <span className="font-bold">Respuestas:</span> {i.responses.join(" | ")}
+                        </p>
+                        {i.faq && <span className="inline-block mt-1 text-[10px] font-bold bg-green-100 text-green-700 px-2 py-0.5 rounded">FAQ</span>}
+                        {i.updatedAt && (
+                          <p className="text-[10px] text-gray-400 mt-2 italic">
+                            Actualizado: {new Date(i.updatedAt).toLocaleString("es-ES")}
+                          </p>
+                        )}
+                        {i.files?.length > 0 && (
+                          <div className="mt-2 pt-2 border-t border-gray-100">
+                            <p className="text-[10px] font-bold uppercase text-gray-400">Archivos:</p>
+                            <ul className="text-xs space-y-1 mt-1">
+                              {i.files.map((f) => (
+                                <li key={`${i.id}-${f.path}`} className="flex items-center justify-between">
+                                  <span className="text-blue-600 truncate max-w-[150px]">{f.filename}</span>
+                                  <button
+                                    className="text-red-500 hover:text-red-700 text-[10px]"
+                                    onClick={() => removeFile(i.id, f.path)}
+                                  >
+                                    Eliminar
+                                  </button>
+                                </li>
+                              ))}
+                            </ul>
+                          </div>
+                        )}
+                      </div>
+                      <div className="flex flex-col gap-2">
+                        <button
+                          className="text-xs border px-3 py-1 rounded hover:bg-gray-50"
+                          onClick={() => editIntent(i)}
+                        >
+                          Editar
+                        </button>
+                        <button
+                          className="text-xs bg-red-600 text-white px-3 py-1 rounded hover:bg-red-700"
+                          onClick={() => deleteIntent(i.id)}
+                        >
+                          Eliminar
+                        </button>
+                      </div>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        </div>
+      </div>
+
+
+
+{/* Bloque de Usuarios (debajo del grid) */}
 <div className="bg-white rounded-lg shadow p-5 space-y-4 mt-6">
-  <h2 className="text-lg font-semibold">Usuarios</h2>
+  <h2 className="text-lg font-semibold border-b pb-2">Gestión de Usuarios</h2>
 
-  <label className="text-sm font-medium">Nombre de usuario</label>
-  <input
-    className="w-full border rounded p-2"
-    placeholder="Usuario"
-    value={userForm.username}
-    onChange={(e) => setUserForm({ ...userForm, username: e.target.value })}
-  />
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div className="flex flex-col gap-1">
+            <label className="text-sm font-medium">Nombre de usuario</label>
+            <input
+              className="w-full border rounded p-2"
+              placeholder="Usuario"
+              value={userForm.username}
+              onChange={(e) => setUserForm({ ...userForm, username: e.target.value })}
+            />
+          </div>
 
-  <label className="text-sm font-medium">Contraseña</label>
-  <input
-    type="password"
-    className="w-full border rounded p-2"
-    placeholder="Contraseña"
-    value={userForm.password || ""}
-    onChange={(e) => setUserForm({ ...userForm, password: e.target.value })}
-  />
+          <div className="flex flex-col gap-1">
+            <label className="text-sm font-medium">Contraseña</label>
+            <input
+              type="password"
+              className="w-full border rounded p-2"
+              placeholder="Contraseña"
+              value={userForm.password || ""}
+              onChange={(e) => setUserForm({ ...userForm, password: e.target.value })}
+            />
+          </div>
 
-  <label className="text-sm font-medium">Rol</label>
-  <select
-    className="w-full border rounded p-2"
-    value={userForm.role || ""}
-    onChange={(e) => setUserForm({ ...userForm, role: e.target.value })}
-  >
-    <option value="">Selecciona un rol</option>
-    <option value="admin">Admin</option>
-    <option value="editor">Editor</option>
-    <option value="viewer">Viewer</option>
-  </select>
+          <div className="flex flex-col gap-1">
+            <label className="text-sm font-medium">Rol</label>
+            <select
+              className="w-full border rounded p-2"
+              value={userForm.role || ""}
+              onChange={(e) => setUserForm({ ...userForm, role: e.target.value })}
+            >
+              <option value="">Selecciona un rol</option>
+              <option value="admin">Admin</option>
+              <option value="editor">Editor</option>
+              <option value="viewer">Viewer</option>
+            </select>
+          </div>
+        </div>
 
   <div className="flex gap-2">
-    <button
-      className="bg-[#722F37] hover:bg-[#5a2529] text-white px-3 py-2 rounded disabled:opacity-60"
-      onClick={saveUser}
-      disabled={loading || !userForm.username || !userForm.password || !userForm.role}
-    >
-      {userForm.id ? "Guardar cambios" : "Crear usuario"}
-    </button>
-    <button
-      className="border px-3 py-2 rounded"
-      onClick={resetUserForm}
-      disabled={loading}
-    >
-      Limpiar
-    </button>
+    
+          <button
+            className="bg-[#722F37] hover:bg-[#5a2529] text-white px-3 py-2 rounded disabled:opacity-60 transition-colors"
+            onClick={saveUser}
+            disabled={loading || !userForm.username || (!userForm.id && !userForm.password) || !userForm.role}
+          >
+            {userForm.id ? "Guardar cambios" : "Crear usuario"}
+          </button>
+          <button
+            className="border px-3 py-2 rounded hover:bg-gray-50 transition-colors"
+            onClick={resetUserForm}
+            disabled={loading}
+          >
+            Limpiar
+          </button>
+        
   </div>
 
   {/* Listado de usuarios */}
-  {Array.isArray(users) && users.length === 0 ? (
-    <p className="text-sm text-gray-600">No hay usuarios creados aún.</p>
-  ) : Array.isArray(users) ? (
-    <ul className="space-y-3">
-      {users.map((u) => (
-        <li key={u.id} className="border rounded-lg p-3 flex justify-between items-center">
-          <div>
-            <p className="font-medium">{u.username}</p>
-            {u.role && <p className="text-xs text-gray-600">Rol: {u.role}</p>}
-            {u.lastLogin && (
-              <p className="text-xs text-gray-500">
-                Última conexión: {new Date(u.lastLogin).toLocaleString("es-ES")}
-              </p>
-            )}
-          </div>
-          <div className="flex gap-2">
-            <button className="border px-3 py-1 rounded" onClick={() => editUser(u)}>
-              Editar
-            </button>
-            <button
-              className="bg-red-600 text-white px-3 py-1 rounded"
-              onClick={() => deleteUser(u.id)}
-            >
-              Eliminar
-            </button>
-          </div>
-        </li>
-      ))}
-    </ul>
-  ) : (
-    <p className="text-sm text-gray-600">No se pudo cargar usuarios.</p>
-  )}
-</div>
-
-          
-
-        </div>
+  <div className="mt-4">
+    {!Array.isArray(users) ? (
+      <p className="text-sm text-gray-600">No se pudo cargar usuarios.</p>
+    ) : users.length === 0 ? (
+      <p className="text-sm text-gray-600 italic">No hay usuarios creados aún.</p>
+    ) : (
+      <ul className="space-y-3">
+        {users.map((u) => (
+                          <li key={u.id} className="border rounded-lg p-3 flex justify-between items-center bg-gray-50">
+                  <div>
+                    <p className="font-medium text-gray-800">{u.username}</p>
+                    {u.role && <p className="text-xs text-gray-500 uppercase font-bold tracking-wider">Rol: {u.role}</p>}
+                    {u.lastLogin && (
+                      <p className="text-[10px] text-gray-400">
+                        Última conexión: {new Date(u.lastLogin).toLocaleString("es-ES")}
+                      </p>
+                    )}
+                  </div>
+                  <div className="flex gap-2">
+                    <button
+                      className="text-xs border bg-white px-3 py-1 rounded hover:bg-gray-100"
+                      onClick={() => editUser(u)}
+                    >
+                      Editar
+                    </button>
+                    <button
+                      className="text-xs bg-red-600 text-white px-3 py-1 rounded hover:bg-red-700"
+                      onClick={() => deleteUser(u.id)}
+                    >
+                      Eliminar
+                    </button>
+                  </div>
+                </li>
+        ))}
+      </ul>
+       )}
       </div>
-  )
-}
+      </div>   {/* cierre del bloque de usuarios */}
+    </div>   {/* cierre del contenedor max-w-6xl */}
+    </div>   
+  )        
+}        
+
+
+

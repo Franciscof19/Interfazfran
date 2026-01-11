@@ -14,18 +14,31 @@ import fs from "fs"
 
 const router = express.Router()
 
-// Configuración de multer para subir archivos
+// Configuración de multer para subir archivos en public/docs
 const storage = multer.diskStorage({
-  destination: (req, file, cb) => cb(null, "uploads"),
+  destination: (req, file, cb) => cb(null, "public/docs"),
   filename: (req, file, cb) => cb(null, Date.now() + "-" + file.originalname)
 })
 const upload = multer({ storage })
 
 // ✅ Obtener todas las intenciones
-router.get("/", auth, async (req, res) => {
+router.get("/", async (req, res) => {
   try {
     const intents = await getIntents()
-    res.json(intents)
+
+    // 🔎 Aseguramos que siempre sea un array
+    if (Array.isArray(intents)) {
+      res.json(intents)
+    } else if (intents && intents.rows) {
+      // Si tu modelo devuelve { rows: [...] }
+      res.json(intents.rows)
+    } else if (intents && intents.intents) {
+      // Si devuelve { intents: [...] }
+      res.json(intents.intents)
+    } else {
+      // Si no es ninguno de los anteriores, devolvemos array vacío
+      res.json([])
+    }
   } catch (err) {
     console.error("Error al obtener intenciones:", err)
     res.status(500).json({ error: "No se pudieron cargar las intenciones" })
@@ -70,7 +83,8 @@ router.post("/:id/files", auth, upload.array("files"), async (req, res) => {
   try {
     const newFiles = req.files.map((file) => ({
       filename: file.originalname,
-      path: "/" + file.path.replace(/\\/g, "/")
+      // Guardamos ruta relativa para servir desde Express
+      path: "/docs/" + file.filename
     }))
     const intent = await addFilesToIntent(req.params.id, newFiles)
     res.json(intent)
@@ -86,7 +100,8 @@ router.delete("/:id/files", auth, async (req, res) => {
     const { path: filePath } = req.body
     const intent = await removeFileFromIntent(req.params.id, filePath)
 
-    const fullPath = path.join(process.cwd(), filePath)
+    // Construimos ruta física en public/docs
+    const fullPath = path.join(process.cwd(), "public", filePath.replace("/docs/", "docs/"))
     if (fs.existsSync(fullPath)) fs.unlinkSync(fullPath)
 
     res.json({ message: "Archivo eliminado", intent })

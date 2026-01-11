@@ -1,0 +1,15 @@
+10/Jan/2026:12:16:14 -0400: Starting PostgREST 14.3...
+10/Jan/2026:12:16:14 -0400: API server listening on 0.0.0.0:300
+10/Jan/2026:12:16:14 -0400: Listening for database notifications on the "pgrst" channel
+10/Jan/2026:12:16:14 -0400: Successfully connected to PostgreSQL 18.1 on x86_64-apple-darwin23.6.0, compiled by Apple clang version 16.0.0 (clang-1600.0.26.6), 64-bit
+10/Jan/2026:12:16:14 -0400: Connection Pool initialized with a maximum size of 10 connections
+10/Jan/2026:12:16:14 -0400: Config reloaded
+10/Jan/2026:12:16:14 -0400: Schema cache queried in 106.8 milliseconds
+10/Jan/2026:12:16:14 -0400: Schema cache loaded 4 Relations, 2 Relationships, 0 Functions, 0 Domain Representations, 4 Media Type Handlers, 598 Timezones
+10/Jan/2026:12:16:14 -0400: Schema cache loaded in 0.3 milliseconds
+FATAL:  terminating connection due to unexpected postmaster exit
+10/Jan/2026:15:38:49 -0400: Failed listening for database notifications on the "pgrst" channel. server closed the connection unexpectedly This probably means the server terminated abnormally before or while processing the request.
+10/Jan/2026:15:38:49 -0400: Retrying listening for database notifications in 1 seconds...
+10/Jan/2026:15:38:50 -0400: Failed listening for database notifications on the "pgrst" channel. connection to server at "localhost" (::1), port 5434 failed: Connection refused Is the server running on that host and accepting TCP/IP connections? connection to server at "localhost" (127.0.0.1), port 5434 failed: Connection refused Is the server running on that host and accepting TCP/IP connections?
+10/Jan/2026:15:38:50 -0400: Failed listening for database notifications on the "pgrst" channel. ExitFailure 1
+10/Jan/2026:15:38:50 -0400: Retrying listening for database notifications in 2 seconds...
