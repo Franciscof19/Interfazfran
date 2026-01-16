@@ -1,15 +1,27 @@
 // src/chatbotLogic.js
+import Fuse from 'fuse.js';
 
+/**
+ * 1. NORMALIZACIÓN DE TEXTO
+ * Limpia el texto de tildes, caracteres especiales y mayúsculas
+ * para que la búsqueda sea más precisa.
+ */
 export const normalizeText = (text) => {
+  if (!text) return "";
   return text
     .toLowerCase()
     .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .replace(/[^\w\s]/gi, "")
-    .trim()
-}
+    .replace(/[\u0300-\u036f]/g, "") // Elimina tildes
+    .replace(/[^\w\s]/gi, "")       // Elimina signos de puntuación
+    .trim();
+};
 
+/**
+ * 2. INTENCIONES ESTÁTICAS
+ * Respuestas predefinidas para la interacción básica.
+ */
 export const staticIntents = [
+
   {
     tag: "Saludo",
     keywords: ["hola", "saludos", "que tal", "buenos dias", "buenas tardes", "buenas noches", "hey"],
@@ -118,65 +130,91 @@ export const staticIntents = [
     ],
     file: null
   }
-]
+  // Puedes seguir agregando el resto de tus intenciones estáticas aquí...
+];
 
-// --- Obtener intenciones dinámicas desde el backend ---
+/**
+ * 3. OBTENCIÓN DE DATOS DINÁMICOS (BACKEND)
+ */
 async function getDynamicIntents() {
   try {
-    const token = localStorage.getItem("token")
+    const token = localStorage.getItem("token");
     const res = await fetch("http://localhost:4000/intents", {
       headers: {
         "Content-Type": "application/json",
         "Authorization": token ? `Bearer ${token}` : ""
       }
-    })
-    const data = await res.json()
+    });
+    const data = await res.json();
 
-    // Determinamos si la data es un array o viene dentro de un objeto
-    const intentsArray = Array.isArray(data) ? data : (data.intents || data.rows || [])
+    const intentsArray = Array.isArray(data) ? data : (data.intents || data.rows || []);
 
-    // Mapeamos las intenciones incluyendo el ID para el contador
-    const adapted = intentsArray.map((intent) => ({
-      id: intent.id, // 👈 Importante para el sistema de preguntas frecuentes
+    return intentsArray.map((intent) => ({
+      id: intent.id, 
       tag: intent.title,
+      // Normalizamos las palabras clave que vienen del servidor para que coincidan con el input
       keywords: (intent.patterns || []).map(p => normalizeText(p)),
-      responses: intent.responses?.length
-        ? intent.responses
-        : ["Respuesta no definida"],
+      responses: intent.responses?.length ? intent.responses : ["Respuesta no definida"],
       file: intent.files?.[0]?.path || null
-    }))
-
-    return adapted
+    }));
   } catch (err) {
-    console.error("❌ Error cargando intenciones dinámicas:", err)
-    return []
+    console.error("❌ Error cargando intenciones dinámicas:", err);
+    return [];
   }
 }
 
-// --- Función para generar respuesta del bot ---
+/**
+ * 4. LÓGICA PRINCIPAL CON FUSE.JS (Búsqueda Difusa)
+ */
 export async function getBotResponse(userMessage) {
-  const normalized = normalizeText(userMessage)
+  // A. Preparamos el mensaje del usuario
+  const normalizedInput = normalizeText(userMessage);
+  
+  // Si el mensaje está vacío después de normalizar
+  if (!normalizedInput) return { text: "Por favor, escribe algo para poder ayudarte.", file: null };
 
-  const dynamicIntents = await getDynamicIntents()
-  const allIntents = [...staticIntents, ...dynamicIntents]
+  // B. Obtenemos todas las intenciones
+  const dynamicIntents = await getDynamicIntents();
+  const allIntents = [...staticIntents, ...dynamicIntents];
 
-  for (let intent of allIntents) {
-    for (let keyword of intent.keywords) {
-      if (normalized.includes(keyword)) {
-        
-        // 🔥 Si la intención tiene un ID (es dinámica), avisamos al backend para el contador
-        if (intent.id) {
-          fetch(`http://localhost:4000/intents/${intent.id}/use`, { 
-            method: "POST" 
-          }).catch(err => console.error("No se pudo registrar el uso:", err))
-        }
+  // C. CONFIGURACIÓN DE FUSE.JS
+  // Este motor permite encontrar coincidencias aunque el usuario escriba mal
+  const fuseOptions = {
+    keys: [
+      { name: 'keywords', weight: 0.7 }, // Las palabras clave tienen más peso
+      { name: 'tag', weight: 0.3 }       // El nombre de la categoría ayuda un poco
+    ],
+    threshold: 0.4,  // Tolerancia: 0.0 (exacto) a 1.0 (todo coincide). 0.4 es ideal para errores.
+    distance: 100    // Distancia máxima de caracteres para considerar una coincidencia
+  };
 
-        // Unimos todas las respuestas en un solo bloque de texto institucional
-        const response = intent.responses.join(" ")
-        return { text: response, file: intent.file || null }
-      }
+  const fuse = new Fuse(allIntents, fuseOptions);
+
+  // D. BUSQUEDA
+  const results = fuse.search(normalizedInput);
+
+  if (results.length > 0) {
+    // Tomamos la mejor coincidencia (índice 0)
+    const bestMatch = results[0].item;
+
+    // E. CONTADOR DE USO (Solo para dinámicas con ID)
+    if (bestMatch.id) {
+      fetch(`http://localhost:4000/intents/${bestMatch.id}/use`, { 
+        method: "POST" 
+      }).catch(err => console.error("No se pudo registrar el uso:", err));
     }
+
+    // F. RESPUESTA
+    const responseText = bestMatch.responses.join(" ");
+    return { 
+      text: responseText, 
+      file: bestMatch.file || null 
+    };
   }
 
-  return { text: "Lo siento, no entendí eso. ¿Puedes reformular tu pregunta?", file: null }
+  // G. FALLBACK (Si no entiende nada)
+  return { 
+    text: "Lo siento, no tengo información exacta sobre eso. ¿Podrías intentar con otras palabras o preguntar por el Decano?", 
+    file: null 
+  };
 }
