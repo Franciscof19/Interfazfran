@@ -3,6 +3,8 @@ import express from "express"
 import cors from "cors"
 import dotenv from "dotenv"
 import pkg from "pg"
+import path from "path" // 1. Añadimos esto para manejar rutas
+import { fileURLToPath } from "url" // Necesario para obtener la ruta en módulos ES
 
 // Rutas
 import authRoutes from "./routes/auth.js"
@@ -12,9 +14,23 @@ import usersRouter from "./routes/users.js"
 dotenv.config()
 const app = express()
 
+// Configuración para obtener la ruta actual (necesario en ES Modules)
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
 // Middlewares
 app.use(cors())
 app.use(express.json())
+
+
+// Servir archivos estáticos permitiendo visualización y descarga
+app.use("/docs", express.static(path.join(process.cwd(), "public", "docs"), {
+    setHeaders: (res, path) => {
+        // Permitimos que el navegador sepa que puede haber descargas (CORS)
+        res.setHeader('Access-Control-Expose-Headers', 'Content-Disposition');
+    }
+}));
+
 
 // Conexión a PostgreSQL
 const { Pool } = pkg

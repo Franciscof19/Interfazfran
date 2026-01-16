@@ -32,7 +32,7 @@ router.post("/login", async (req, res) => {
 
     if (!user) return res.status(401).json({ error: "Usuario no encontrado" })
 
-    const match = await bcrypt.compare(password, user.password)
+    const match = await bcrypt.compare(password, user.password);
     if (!match) return res.status(401).json({ error: "Contraseña incorrecta" })
 
     const token = jwt.sign(

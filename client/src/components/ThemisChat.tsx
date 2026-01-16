@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from "react"
 import Link from "next/link"
-import { Plus, Clock, Send, Search, Scale } from "lucide-react"
+import { Plus, Clock, Send, Search, Scale, FileText, Download, ExternalLink } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { ScrollArea } from "@/components/ui/scroll-area"
@@ -20,7 +20,7 @@ export default function ThemisChat() {
   const [messages, setMessages] = useState<Message[]>([
     {
       id: "1",
-      content: "¡Hola! Soy Themis, tu asistente de inteligencia artificial. ¿En qué puedo ayudarte hoy?",
+      content: "¡Hola! Soy Themis, tu asistente de inteligencia artificial.\n¿En qué puedo ayudarte hoy?",
       sender: "bot",
       timestamp: new Date().toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit" })
     }
@@ -52,29 +52,52 @@ export default function ThemisChat() {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" })
   }, [messages])
 
+  const handleDownload = async (fileUrl: string) => {
+    try {
+      const fullUrl = `http://localhost:4000${fileUrl}`;
+      const fileName = fileUrl.split('/').pop() || 'archivo';
+      
+      const response = await fetch(fullUrl);
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = fileName; 
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+    } catch (err) {
+      console.error("Error en la descarga:", err);
+      window.open(`http://localhost:4000${fileUrl}`, '_blank');
+    }
+  }
+
   const handleNewChat = () => {
     setMessages([{
       id: Date.now().toString(),
-      content: "¡Hola! Soy Themis, tu asistente de inteligencia artificial. ¿En qué puedo ayudarte hoy?",
+      content: "¡Hola! Soy Themis, tu asistente de inteligencia artificial.\n¿En qué puedo ayudarte hoy?",
       sender: "bot",
       timestamp: new Date().toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit" })
     }])
   }
 
-  const handleSendMessage = async () => {
-    if (inputValue.trim() === "") return
-    const userMsg = inputValue
+  const handleSendMessage = async (textOverride?: string) => {
+    const textToSend = textOverride || inputValue
+    if (textToSend.trim() === "") return
+
     const newUserMessage: Message = {
       id: Date.now().toString(),
-      content: userMsg,
+      content: textToSend,
       sender: "user",
       timestamp: new Date().toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit" })
     }
+
     setMessages(prev => [...prev, newUserMessage])
     setInputValue("")
 
     try {
-      const botResponseData = await getBotResponse(userMsg)
+      const botResponseData = await getBotResponse(textToSend)
       const botMessage: Message = {
         id: (Date.now() + 1).toString(),
         content: botResponseData.text,
@@ -120,7 +143,7 @@ export default function ThemisChat() {
               {frequentIntents.map((intent) => (
                 <button
                   key={intent.id}
-                  onClick={() => setInputValue(intent.title)}
+                  onClick={() => handleSendMessage(intent.title)}
                   className="w-full text-left text-[11px] p-2 rounded hover:bg-white/10 transition-colors truncate block"
                 >
                   • {intent.title}
@@ -134,7 +157,6 @@ export default function ThemisChat() {
       {/* Contenedor Principal */}
       <div className="flex-1 flex flex-col h-full relative overflow-hidden">
         
-        {/* Header */}
         <header className="h-16 bg-white border-b border-gray-200 p-4 flex items-center gap-3 flex-shrink-0 z-10">
           <div className="w-10 h-10 rounded-full bg-[#722F37] flex items-center justify-center">
             <Scale className="w-5 h-5 text-white" />
@@ -157,10 +179,47 @@ export default function ThemisChat() {
                 )}
                 <div className={`flex flex-col ${message.sender === "user" ? "items-end" : "items-start"}`}>
                   <div className={`rounded-2xl px-4 py-2.5 max-w-md shadow-sm ${message.sender === "user" ? "bg-[#722F37] text-white" : "bg-white text-gray-800 border border-gray-200"}`}>
-                    <p className="text-sm leading-relaxed">{message.content}</p>
-                    {message.file ? (
-                      <a href={`http://localhost:4000${message.file}`} download className="text-xs text-blue-600 underline mt-2 block font-medium">📎 Descargar documento</a>
-                    ) : null}
+                    
+                    {/* MODIFICACIÓN AQUÍ: whitespace-pre-line para respetar saltos de línea */}
+                    <p className="text-sm leading-relaxed whitespace-pre-line">
+                      {message.content}
+                    </p>
+                    
+                    {message.file && (
+                      <div className="mt-3 p-2 rounded-xl bg-gray-50 border border-gray-100">
+                        {message.file.match(/\.(jpg|jpeg|png|gif|webp)$/i) ? (
+                          <div className="relative group mb-2 overflow-hidden rounded-lg border border-gray-200 bg-white">
+                            <img 
+                              src={`http://localhost:4000${message.file}`} 
+                              alt="Adjunto" 
+                              className="max-h-48 w-full object-contain"
+                            />
+                            <a 
+                              href={`http://localhost:4000${message.file}`} 
+                              target="_blank" 
+                              className="absolute inset-0 bg-black/20 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity text-white"
+                            >
+                              <ExternalLink className="w-5 h-5" />
+                            </a>
+                          </div>
+                        ) : (
+                          <div className="flex items-center gap-3 p-3 bg-white rounded-lg border border-gray-100 mb-2">
+                            <FileText className="w-6 h-6 text-[#722F37]" />
+                            <span className="text-[11px] font-medium text-gray-600 truncate max-w-[150px]">
+                              Documento
+                            </span>
+                          </div>
+                        )}
+
+                        <button 
+                          onClick={() => handleDownload(message.file!)}
+                          className="flex items-center justify-center gap-2 w-full py-2 bg-[#722F37] rounded-lg text-white text-[11px] font-bold hover:bg-[#5a2529] transition-all shadow-md active:scale-95"
+                        >
+                          <Download className="w-3.5 h-3.5" />
+                          DESCARGAR ARCHIVO
+                        </button>
+                      </div>
+                    )}
                   </div>
                   <span className="text-[10px] text-gray-400 mt-1">{message.timestamp}</span>
                 </div>
@@ -187,7 +246,7 @@ export default function ThemisChat() {
                 className="pl-10 pr-4 py-5 rounded-full border-gray-200 focus:ring-[#722F37]"
               />
             </div>
-            <Button onClick={handleSendMessage} className="w-12 h-12 rounded-full bg-[#722F37] hover:bg-[#5a2529] text-white transition-all">
+            <Button onClick={() => handleSendMessage()} className="w-12 h-12 rounded-full bg-[#722F37] hover:bg-[#5a2529] text-white transition-all">
               <Send className="w-5 h-5" />
             </Button>
           </div>
