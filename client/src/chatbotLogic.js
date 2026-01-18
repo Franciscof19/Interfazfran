@@ -139,7 +139,8 @@ export const staticIntents = [
 async function getDynamicIntents() {
   try {
     const token = localStorage.getItem("token");
-    const res = await fetch("http://localhost:4000/intents", {
+    const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000";
+    const res = await fetch(`${API_URL}/intents`, {
       headers: {
         "Content-Type": "application/json",
         "Authorization": token ? `Bearer ${token}` : ""
@@ -155,7 +156,7 @@ async function getDynamicIntents() {
       // Normalizamos las palabras clave que vienen del servidor para que coincidan con el input
       keywords: (intent.patterns || []).map(p => normalizeText(p)),
       responses: intent.responses?.length ? intent.responses : ["Respuesta no definida"],
-      file: intent.files?.[0]?.path || null
+      file: intent.files?.[0]?.url || null
     }));
   } catch (err) {
     console.error("❌ Error cargando intenciones dinámicas:", err);
@@ -199,7 +200,8 @@ export async function getBotResponse(userMessage) {
 
     // E. CONTADOR DE USO (Solo para dinámicas con ID)
     if (bestMatch.id) {
-      fetch(`http://localhost:4000/intents/${bestMatch.id}/use`, { 
+      const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000";
+      fetch(`${API_URL}/intents/${bestMatch.id}/use`, { 
         method: "POST" 
       }).catch(err => console.error("No se pudo registrar el uso:", err));
     }

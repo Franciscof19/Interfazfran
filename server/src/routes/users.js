@@ -1,7 +1,7 @@
 // routes/users.js
 import express from "express"
 import bcrypt from "bcrypt"
-import { pool } from "../server.js"
+import { pool } from "../db.js"
 import auth from "../middleware/auth.js"
 
 const router = express.Router()

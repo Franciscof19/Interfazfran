@@ -28,10 +28,12 @@ export default function ThemisChat() {
   const [inputValue, setInputValue] = useState("")
   const [frequentIntents, setFrequentIntents] = useState<any[]>([])
   const messagesEndRef = useRef<HTMLDivElement | null>(null)
+  
+  const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:4000";
 
   const fetchFrequent = async () => {
     try {
-      const res = await fetch("http://localhost:4000/intents")
+      const res = await fetch(`${API_URL}/intents`)
       const data = await res.json()
       if (Array.isArray(data)) {
         const top5 = data
@@ -54,7 +56,7 @@ export default function ThemisChat() {
 
   const handleDownload = async (fileUrl: string) => {
     try {
-      const fullUrl = `http://localhost:4000${fileUrl}`;
+      const fullUrl = fileUrl.startsWith('http') ? fileUrl : `${API_URL}${fileUrl}`;
       const fileName = fileUrl.split('/').pop() || 'archivo';
       
       const response = await fetch(fullUrl);
@@ -69,7 +71,9 @@ export default function ThemisChat() {
       document.body.removeChild(a);
     } catch (err) {
       console.error("Error en la descarga:", err);
-      window.open(`http://localhost:4000${fileUrl}`, '_blank');
+      // Fallback: abrir en nueva pestaña si falla la descarga directa
+      const fullUrl = fileUrl.startsWith('http') ? fileUrl : `${API_URL}${fileUrl}`;
+      window.open(fullUrl, '_blank');
     }
   }
 
@@ -190,12 +194,12 @@ export default function ThemisChat() {
                         {message.file.match(/\.(jpg|jpeg|png|gif|webp)$/i) ? (
                           <div className="relative group mb-2 overflow-hidden rounded-lg border border-gray-200 bg-white">
                             <img 
-                              src={`http://localhost:4000${message.file}`} 
+                              src={message.file.startsWith('http') ? message.file : `${API_URL}${message.file}`} 
                               alt="Adjunto" 
                               className="max-h-48 w-full object-contain"
                             />
                             <a 
-                              href={`http://localhost:4000${message.file}`} 
+                              href={message.file.startsWith('http') ? message.file : `${API_URL}${message.file}`} 
                               target="_blank" 
                               className="absolute inset-0 bg-black/20 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity text-white"
                             >

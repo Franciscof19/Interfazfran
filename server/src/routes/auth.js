@@ -1,7 +1,7 @@
 import express from "express"
 import bcrypt from "bcrypt"
 import jwt from "jsonwebtoken"
-import { pool } from "../server.js"   // Conexión a PostgreSQL
+import { pool } from "../db.js"   // Conexión a PostgreSQL
 
 const router = express.Router()
 
@@ -72,5 +72,3 @@ router.get("/", async (req, res) => {
 })
 
 export default router
-
-

@@ -1,4 +1,4 @@
-import { pool } from "../server.js"
+import { pool } from "../db.js"
 
 // Obtener todas las intenciones
 export async function getIntents() {
@@ -66,4 +66,3 @@ export async function incrementIntentUsage(id) {
     [id]
   );
 }
-

@@ -1,9 +1,8 @@
 import express from "express"
 // server/src/routes/intents.js
-import { pool } from "../server.js"
+import { pool } from "../db.js"
 import multer from "multer"
 import {
-  getIntents,
   createIntent,
   updateIntent,
   deleteIntent,
@@ -27,24 +26,31 @@ const upload = multer({ storage })
 // ✅ Obtener todas las intenciones
 router.get("/", async (req, res) => {
   try {
-    const intents = await getIntents()
-
-    // 🔎 Aseguramos que siempre sea un array
-    if (Array.isArray(intents)) {
-      res.json(intents)
-    } else if (intents && intents.rows) {
-      // Si tu modelo devuelve { rows: [...] }
-      res.json(intents.rows)
-    } else if (intents && intents.intents) {
-      // Si devuelve { intents: [...] }
-      res.json(intents.intents)
-    } else {
-      // Si no es ninguno de los anteriores, devolvemos array vacío
-      res.json([])
-    }
+    // Modificación: Consulta directa con JOIN para traer los archivos de Supabase
+    // Usamos las columnas que confirmaste: url, name, file_type
+    const result = await pool.query(`
+      SELECT 
+        i.*, 
+        COALESCE(
+          json_agg(
+            json_build_object(
+              'url', f.url, 
+              'name', f.name, 
+              'type', f.file_type
+            )
+          ) FILTER (WHERE f.id IS NOT NULL), 
+          '[]'
+        ) as files
+      FROM intents i
+      LEFT JOIN intents_files f ON i.id = f.intent_id
+      GROUP BY i.id
+      ORDER BY i.id ASC
+    `);
+    
+    res.json(result.rows);
   } catch (err) {
     console.error("Error al obtener intenciones:", err)
-    res.status(500).json({ error: "No se pudieron cargar las intenciones" })
+    res.status(500).json({ error: "No se pudieron cargar las intenciones", details: err.message })
   }
 })
 
